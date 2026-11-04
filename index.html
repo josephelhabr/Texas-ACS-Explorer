@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Texas ACS Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+/* ------------------------------------------------------------------
+   Theme tokens
+------------------------------------------------------------------- */
+:root{
+  --bg:#F3F5F4; --panel:#FFFFFF; --ink:#17242C; --muted:#5C6870; --line:#DCE1DF;
+  --accent:#1F6F4A; --accent-ink:#FFFFFF; --soft:#E7EFEA; --sel:#D99800; --bad:#B4412F;
+  --ramp0:#E2EEE6; --ramp1:#B2D3BE; --ramp2:#79B394; --ramp3:#3B8C63; --ramp4:#155A3A;
+  --nodata:#D5DAD7; --canvas:#FAFBFA; --edge:#FFFFFF; --ctx:#B9C2BE;
+  --radius:10px;
+  --font:"Public Sans", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0F1518; --panel:#172024; --ink:#E4EAEC; --muted:#93A0A6; --line:#29363B;
+    --accent:#2F8F5E; --accent-ink:#FFFFFF; --soft:#1C2C25; --sel:#F2B632; --bad:#E07A66;
+    --ramp0:#1E3A2C; --ramp1:#2E6447; --ramp2:#3F8C62; --ramp3:#6DB88D; --ramp4:#B4E2C4;
+    --nodata:#2E383C; --canvas:#141C20; --edge:#141C20; --ctx:#3C494F;
+    color-scheme: dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.45}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+
+.wrap{max-width:1440px;margin:0 auto;padding:20px 20px 40px}
+
+/* Header */
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;margin-bottom:16px}
+.title h1{margin:0;font-size:1.5rem;font-weight:700;letter-spacing:-0.01em}
+.title p{margin:2px 0 0;color:var(--muted);font-size:.9rem}
+.status{font-size:.85rem;color:var(--muted);display:flex;align-items:center;gap:8px;min-height:22px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.status.ok .dot{background:var(--accent)}
+.status.loading .dot{background:var(--sel);animation:pulse 1s ease-in-out infinite}
+.status.err{color:var(--bad)} .status.err .dot{background:var(--bad)}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion: reduce){.status.loading .dot{animation:none}}
+
+/* Controls */
+.controls{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:flex-end;margin-bottom:16px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field > span{font-size:.8rem;color:var(--muted);font-weight:500}
+.sign{display:inline-flex;background:var(--accent);border-radius:8px;padding:3px;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.55)}
+.sign button{border:0;background:transparent;color:var(--accent-ink);opacity:.72;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:.9rem;white-space:nowrap}
+.sign button[aria-pressed="true"]{opacity:1;background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.9)}
+.sign button:hover{opacity:1}
+select,input[type=search],input[type=text]{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+select{min-width:180px;cursor:pointer}
+select:disabled{opacity:.5;cursor:not-allowed}
+.settings{margin-left:auto}
+.settings summary{cursor:pointer;font-size:.85rem;color:var(--muted);list-style:none;padding:8px 0}
+.settings summary::-webkit-details-marker{display:none}
+.settings[open] summary{color:var(--ink)}
+.settings .pop{display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.settings .pop input{width:280px;max-width:100%}
+.settings .hint{font-size:.78rem;color:var(--muted);max-width:420px;margin:6px 0 0}
+
+/* KPI strip */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)}
+.kpis{padding:14px 4px 14px;margin-bottom:16px}
+.kpis-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:0 16px 10px;flex-wrap:wrap}
+.kpis-head h2{margin:0;font-size:1rem;font-weight:600}
+.kpis-head span{font-size:.8rem;color:var(--muted)}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr))}
+.kpi{padding:4px 16px;border-left:1px solid var(--line)}
+.kpi:first-child{border-left:0}
+.kpi .v{font-size:1.55rem;font-weight:600;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;line-height:1.2}
+.kpi .l{font-size:.8rem;color:var(--muted)}
+.kpi.travel .v{color:var(--accent)}
+
+/* Map + profile */
+.main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;margin-bottom:16px}
+.mapbox{position:relative;overflow:hidden;min-height:560px}
+#map{position:absolute;inset:0;border-radius:var(--radius);background:var(--bg)}
+.leaflet-container{font-family:var(--font)}
+.map-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:500;pointer-events:none}
+.map-msg span{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:.88rem;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.map-msg[hidden]{display:none}
+.basemap{position:absolute;top:12px;right:12px;z-index:500;display:flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:2px}
+.basemap button{border:0;background:none;padding:5px 10px;border-radius:6px;font-size:.78rem;font-weight:600;color:var(--muted);cursor:pointer}
+.basemap button[aria-pressed="true"]{background:var(--soft);color:var(--ink)}
+#map.plain{background:var(--canvas)}
+.leaflet-container .leaflet-control-attribution{background:transparent;color:var(--muted);font-size:.68rem}
+.leaflet-container .leaflet-control-attribution a{color:var(--muted)}
+.legend{position:absolute;left:12px;bottom:12px;z-index:500;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:.78rem;max-width:calc(100% - 24px)}
+.legend b{display:block;font-weight:600;margin-bottom:6px;font-size:.8rem}
+.legend .row{display:flex;align-items:center;gap:8px;margin-top:3px;font-variant-numeric:tabular-nums}
+.legend i{width:16px;height:11px;border-radius:2px;flex:none}
+.legend[hidden]{display:none}
+.leaflet-tooltip.tt{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);font-size:.82rem;padding:6px 9px}
+.leaflet-tooltip.tt::before{display:none}
+.tt b{display:block;font-weight:600}
+
+.profile{padding:16px;display:flex;flex-direction:column;gap:16px;max-height:560px;overflow:auto}
+.profile-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.profile-head h3{margin:0;font-size:1.05rem;font-weight:600;line-height:1.3}
+.profile-head small{display:block;color:var(--muted);font-size:.78rem;margin-top:2px}
+.linkbtn{border:0;background:none;color:var(--accent);cursor:pointer;padding:2px 0;font-size:.82rem;font-weight:600;white-space:nowrap}
+.linkbtn[hidden]{display:none}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin:0}
+.facts div{display:flex;flex-direction:column}
+.facts dt{font-size:.75rem;color:var(--muted);order:2}
+.facts dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums;order:1}
+.bars h4{margin:0 0 8px;font-size:.85rem;font-weight:600}
+.bar{display:grid;grid-template-columns:104px 1fr 46px;align-items:center;gap:8px;font-size:.8rem;margin-bottom:5px}
+.bar .track{height:8px;background:var(--soft);border-radius:4px;overflow:hidden}
+.bar .fill{height:100%;background:var(--accent);border-radius:4px}
+.bar .p{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+
+/* Table */
+.tablebox{padding:14px 0 6px}
+.tablebar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:0 16px 12px}
+.tablebar h2{margin:0;font-size:1rem;font-weight:600;margin-right:auto}
+.tablebar input{width:220px}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:600;font-size:.85rem}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.84rem;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left;padding-left:16px;position:sticky;left:0;background:var(--panel)}
+th{font-weight:600;color:var(--muted);font-size:.78rem;cursor:pointer;user-select:none}
+th[aria-sort] {color:var(--ink)}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:var(--soft)}
+tbody tr.sel td{background:var(--soft);box-shadow:inset 0 0 0 0 var(--sel)}
+tbody tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--sel)}
+.pager{display:flex;justify-content:space-between;align-items:center;padding:10px 16px 6px;font-size:.82rem;color:var(--muted);gap:10px;flex-wrap:wrap}
+.pager div{display:flex;gap:6px}
+
+.errbox{padding:14px 16px;margin-bottom:16px;border-color:var(--bad)}
+.errbox[hidden]{display:none}
+.errbox p{margin:0 0 6px}
+.errbox #errText{font-weight:600;color:var(--bad)}
+.errbox .small{font-size:.82rem;color:var(--muted)}
+.errbox a{color:var(--accent);word-break:break-all}
+.notes{font-size:.78rem;color:var(--muted);margin-top:18px;max-width:900px}
+.notes p{margin:4px 0}
+.notes a{color:inherit}
+
+@media (max-width: 920px){
+  .main{grid-template-columns:1fr}
+  .mapbox{min-height:420px}
+  .profile{max-height:none}
+  .settings{margin-left:0}
+}
+@media (max-width: 520px){
+  .wrap{padding:14px 12px 30px}
+  .sign button{padding:7px 10px;font-size:.84rem}
+  select{min-width:0;width:100%}
+  .field{flex:1 1 100%}
+  .kpi{border-left:0;padding:6px 16px}
+  .tablebar input{width:100%}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="title">
+      <h1>Texas ACS Explorer</h1>
+      <p id="vintage">American Community Survey 5-year estimates</p>
+    </div>
+    <div class="status loading" id="status" role="status"><span class="dot"></span><span id="statusText">Finding the latest ACS release…</span></div>
+  </header>
+
+  <section class="controls" aria-label="Filters">
+    <div class="field">
+      <span id="geoLabel">Geography</span>
+      <div class="sign" role="group" aria-labelledby="geoLabel">
+        <button type="button" data-geo="county" aria-pressed="true">County</button>
+        <button type="button" data-geo="tract" aria-pressed="false">Tract</button>
+        <button type="button" data-geo="bg" aria-pressed="false">Block group</button>
+      </div>
+    </div>
+    <label class="field">
+      <span>County</span>
+      <select id="county" disabled autocomplete="off"><option>Loading counties…</option></select>
+    </label>
+    <label class="field">
+      <span>Map shows</span>
+      <select id="metric" autocomplete="off"></select>
+    </label>
+    <details class="settings">
+      <summary>Census API key</summary>
+      <div class="pop">
+        <input type="text" id="apikey" placeholder="Optional — paste a key" autocomplete="off" spellcheck="false">
+        <button class="btn" type="button" id="applyKey">Use key</button>
+      </div>
+      <p class="hint">Works without a key for light use (about 500 requests per day per network). A free key from api.census.gov/data/key_signup.html must be activated from its email before it works. To share it with your team, set it in CONFIG at the top of this file’s script.</p>
+    </details>
+  </section>
+
+  <section class="panel errbox" id="errbox" hidden role="alert">
+    <p id="errText"></p>
+    <p class="small">The request that failed is below. Open it in a new tab to see exactly what the Census Bureau sent back.</p>
+    <p class="small"><a id="errUrl" target="_blank" rel="noopener"></a></p>
+    <button class="btn" type="button" id="retry">Try again</button>
+  </section>
+
+  <section class="panel kpis" aria-label="Summary">
+    <div class="kpis-head"><h2 id="sumTitle">Texas</h2><span id="sumNote">Official ACS estimate for the whole area</span></div>
+    <div class="kpi-grid" id="kpis"></div>
+  </section>
+
+  <section class="main">
+    <div class="panel mapbox">
+      <div id="map" aria-label="Map"></div>
+      <div class="map-msg" id="mapMsg"><span id="mapMsgText">Loading map…</span></div>
+      <div class="legend" id="legend" hidden></div>
+      <div class="basemap" role="group" aria-label="Basemap">
+        <button type="button" data-bm="plain" aria-pressed="true">Plain</button>
+        <button type="button" data-bm="streets" aria-pressed="false">Streets</button>
+      </div>
+    </div>
+    <aside class="panel profile" id="profile" aria-live="polite">
+      <div class="profile-head">
+        <div><h3 id="pTitle">—</h3><small id="pSub"></small></div>
+        <button class="linkbtn" id="clearSel" hidden>Show area summary</button>
+      </div>
+      <dl class="facts" id="pFacts"></dl>
+      <div class="bars"><h4>Race and ethnicity</h4><div id="pRace"></div></div>
+      <div class="bars"><h4>How workers get to work</h4><div id="pMode"></div></div>
+    </aside>
+  </section>
+
+  <section class="panel tablebox" aria-label="Data table">
+    <div class="tablebar">
+      <h2 id="tableTitle">Counties</h2>
+      <input type="search" id="search" placeholder="Search name or GEOID">
+      <button class="btn" id="dlCsv" disabled>Download CSV</button>
+      <button class="btn primary" id="dlGeo" disabled>Download GeoJSON</button>
+    </div>
+    <div class="scroll"><table id="table"><thead></thead><tbody></tbody></table></div>
+    <div class="pager"><span id="pageInfo"></span><div><button class="btn" id="prev">Previous</button><button class="btn" id="next">Next</button></div></div>
+  </section>
+
+  <footer class="notes">
+    <p>Source: U.S. Census Bureau, American Community Survey 5-year detailed tables (B01001, B01002, B01003, B03002, B08013, B08301, B11001, B19013, B25003, B25044, B25046, C17002) via api.census.gov. Boundaries: Census TIGERweb, simplified for display.</p>
+    <p>Estimates carry margins of error that grow large for tracts and especially block groups; treat small-area differences with care. Mean travel time excludes people who work from home. Density uses land area only.</p>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+/* ==================================================================
+   CONFIG — edit these for your team
+=================================================================== */
+const CONFIG = {
+  CENSUS_API_KEY: "",          // optional: paste your Census API key here
+  DEFAULT_COUNTY: "453",       // county FIPS used for tract / block group views (453 = Travis)
+  DEFAULT_METRIC: "pct_zveh"
+};
+
+/* ==================================================================
+   Constants
+=================================================================== */
+const ST = "48";
+const API = "https://api.census.gov/data";
+const TIGER = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb";
+const LEVEL = {
+  county:{label:"Counties", one:"county", layer:["counties"], tol:0.004},
+  tract:{label:"Census tracts", one:"tract", layer:["census tracts"], tol:0.0003},
+  bg:{label:"Block groups", one:"block group", layer:["census block groups"], tol:0.00015}
+};
+const pad = n => String(n).padStart(3,"0");
+const range = (a,b) => Array.from({length:b-a+1},(_,i)=>a+i);
+const AGE_U18 = [...range(3,6), ...range(27,30)].map(i=>"B01001_"+pad(i)+"E");
+const AGE_65 = [...range(20,25), ...range(44,49)].map(i=>"B01001_"+pad(i)+"E");
+const GROUPS = {
+  core:["NAME","B01003_001E","B01002_001E","B19013_001E","B11001_001E","B25003_001E","B25003_003E","C17002_001E","C17002_002E","C17002_003E"],
+  race:["B03002_001E","B03002_003E","B03002_004E","B03002_005E","B03002_006E","B03002_007E","B03002_008E","B03002_009E","B03002_012E"],
+  travel:["B08301_001E","B08301_002E","B08301_003E","B08301_004E","B08301_010E","B08301_016E","B08301_017E","B08301_018E","B08301_019E","B08301_020E","B08301_021E","B08013_001E","B25044_001E","B25044_003E","B25044_010E","B25046_001E"],
+  age:["B01001_001E", ...AGE_U18, ...AGE_65]
+};
+
+const METRICS = [
+  {id:"pop", label:"Population", f:"int"},
+  {id:"density", label:"Population per sq mi", f:"int"},
+  {id:"med_age", label:"Median age", f:"d1"},
+  {id:"med_inc", label:"Median household income", f:"usd"},
+  {id:"pct_pov", label:"Below poverty level", f:"pct"},
+  {id:"pct_poc", label:"People of color", f:"pct"},
+  {id:"pct_u18", label:"Under 18", f:"pct"},
+  {id:"pct_65", label:"Age 65 and over", f:"pct"},
+  {id:"pct_renter", label:"Renter households", f:"pct"},
+  {id:"pct_zveh", label:"Zero-vehicle households", f:"pct", travel:true},
+  {id:"veh_hh", label:"Vehicles per household", f:"d2", travel:true},
+  {id:"pct_da", label:"Drive alone to work", f:"pct", travel:true},
+  {id:"pct_cp", label:"Carpool to work", f:"pct", travel:true},
+  {id:"pct_transit", label:"Transit to work", f:"pct", travel:true},
+  {id:"pct_walk", label:"Walk to work", f:"pct", travel:true},
+  {id:"pct_bike", label:"Bike to work", f:"pct", travel:true},
+  {id:"pct_wfh", label:"Work from home", f:"pct", travel:true},
+  {id:"commute", label:"Mean travel time to work (min)", f:"d1", travel:true}
+];
+const M = Object.fromEntries(METRICS.map(m=>[m.id,m]));
+const KPI_IDS = ["pop","med_inc","pct_pov","pct_poc","pct_zveh","pct_da","pct_transit","commute"];
+const TABLE_IDS = ["pop","density","med_inc","pct_pov","pct_poc","pct_zveh","veh_hh","pct_da","pct_transit","pct_walk","pct_wfh","commute"];
+const SHORT = {pop:"Population",density:"Per sq mi",med_inc:"Median HH income",pct_pov:"Poverty",pct_poc:"People of color",pct_zveh:"Zero-vehicle HH",veh_hh:"Veh / HH",pct_da:"Drive alone",pct_transit:"Transit",pct_walk:"Walk",pct_wfh:"WFH",commute:"Commute (min)"};
+
+/* ==================================================================
+   State
+=================================================================== */
+const S = {
+  year:null, key:CONFIG.CENSUS_API_KEY, geo:"county", county:CONFIG.DEFAULT_COUNTY,
+  metric:CONFIG.DEFAULT_METRIC, counties:[], records:[], byId:new Map(), features:null,
+  summary:null, selected:null, sortKey:"pop", sortDir:-1, page:0, query:"",
+  cache:new Map(), tiger:null, loadToken:0, basemap:"plain", ctxGeo:null
+};
+const $ = id => document.getElementById(id);
+
+/* ==================================================================
+   Formatting
+=================================================================== */
+function fmt(v, f){
+  if(v==null || !isFinite(v)) return "—";
+  switch(f){
+    case "int": return Math.round(v).toLocaleString("en-US");
+    case "usd": return "$"+Math.round(v).toLocaleString("en-US");
+    case "pct": return v.toFixed(1)+"%";
+    case "d1": return v.toFixed(1);
+    case "d2": return v.toFixed(2);
+    default: return String(v);
+  }
+}
+function fmtShort(v,f){
+  if(v==null||!isFinite(v)) return "—";
+  if(f==="usd") return v>=1000 ? "$"+(v/1000).toFixed(v>=100000?0:1)+"k" : "$"+Math.round(v);
+  if(f==="int" && v>=1e6) return (v/1e6).toFixed(2)+"M";
+  if(f==="int" && v>=1e4) return (v/1e3).toFixed(0)+"k";
+  return fmt(v,f);
+}
+function status(text, kind){
+  const el=$("status"); el.className="status "+(kind||"ok"); $("statusText").textContent=text;
+}
+function mapMsg(text){ const m=$("mapMsg"); if(text){m.hidden=false;$("mapMsgText").textContent=text;} else m.hidden=true; }
+
+/* ==================================================================
+   Census API
+=================================================================== */
+function keyParam(){ return S.key ? "&key="+encodeURIComponent(S.key) : ""; }
+
+function safeUrl(u){ return u.replace(/([?&])key=[^&]*/,"$1key=YOUR_KEY"); }
+function fail(msg, url, status, body){ const e=new Error(msg); e.url=url?safeUrl(url):null; e.status=status; e.body=body||""; return e; }
+async function getJSON(url, what, timeoutMs=45000){
+  const ctl = new AbortController(); const timer = setTimeout(()=>ctl.abort(), timeoutMs);
+  let res, txt;
+  try{ res = await fetch(url,{signal:ctl.signal}); txt = await res.text(); }
+  catch(e){
+    throw fail(e.name==="AbortError" ? `${what} didn’t respond within ${timeoutMs/1000} seconds.` : `Couldn’t reach ${what}. Check your connection, or whether your network blocks it.`, url);
+  }finally{ clearTimeout(timer); }
+  const isCensus = url.startsWith(API);
+  if(isCensus && (/invalid_key|invalid key/i.test(res.url+txt) || (S.key && /key/i.test(txt) && !txt.trim().startsWith("[")))){
+    throw fail("The Census API didn’t accept the API key. New keys must be activated with the link in the sign-up email first. Clear the key field and select Use key to run without one.", url, res.status, txt);
+  }
+  if(!res.ok){
+    const detail = txt && txt.length<300 && !/<html/i.test(txt) ? ": "+txt.trim() : "";
+    throw fail(`${what} returned an error (${res.status})${detail}`, url, res.status, txt);
+  }
+  try{ return JSON.parse(txt); }
+  catch(e){ throw fail(`${what} sent back a page instead of data. This usually means the daily limit was reached; an activated API key fixes it.`, url, res.status, txt); }
+}
+
+// The ACS 5-year for year Y is released in December of Y+1, so start at last year and step back.
+async function detectYear(){
+  const now = new Date().getFullYear();
+  let lastErr = null;
+  for(let y=now-1; y>=now-6; y--){
+    status(`Checking for the ACS ${y-4}–${y} release…`, "loading");
+    try{
+      const arr = await getJSON(`${API}/${y}/acs/acs5?get=NAME,B01003_001E&for=county:*&in=state:${ST}${keyParam()}`, "The Census API", 30000);
+      if(Array.isArray(arr) && arr.length>1) return {year:y, countyRows:arr};
+    }catch(e){
+      lastErr = e;
+      if(e.status===404 || e.status===400) continue;   // release not published yet: try the year before
+      throw e;                                        // network, key or limit problem: stop and say so
+    }
+  }
+  throw lastErr || fail("Couldn’t find an ACS 5-year release on the Census API.");
+}
+
+function geoClause(level, county){
+  if(level==="county") return `for=county:*&in=state:${ST}`;
+  if(level==="tract") return `for=tract:*&in=state:${ST}&in=county:${county}`;
+  return `for=block%20group:*&in=state:${ST}&in=county:${county}&in=tract:*`;
+}
+function summaryClause(level, county){
+  return level==="county" ? `for=state:${ST}` : `for=county:${county}&in=state:${ST}`;
+}
+const rowKey = r => (r.state||"")+(r.county||"")+(r.tract||"")+(r["block group"]||"");
+
+async function fetchGroup(vars, clause, tries=3){
+  const url = `${API}/${S.year}/acs/acs5?get=${vars.join(",")}&${clause}${keyParam()}`;
+  let arr;
+  try{ arr = await getJSON(url, "The Census API"); }
+  catch(e){
+    // If one variable isn’t published for this year or geography, drop it and ask again
+    const m = /unknown variable '?([A-Z0-9_]+)/i.exec(e.body||"");
+    if(m && tries>0 && vars.includes(m[1]) && vars.length>1) return fetchGroup(vars.filter(v=>v!==m[1]), clause, tries-1);
+    throw e;
+  }
+  if(!Array.isArray(arr) || !arr.length) return [];
+  const [head, ...rows] = arr;
+  return rows.map(r => Object.fromEntries(head.map((h,i)=>[h,r[i]])));
+}
+
+async function fetchACS(clause){
+  const names = Object.keys(GROUPS);
+  const settled = await Promise.allSettled(names.map(n=>fetchGroup(GROUPS[n], clause)));
+  if(settled[0].status==="rejected") throw settled[0].reason;
+  const merged = new Map();
+  const missing = [];
+  settled.forEach((s,i)=>{
+    if(s.status!=="fulfilled"){ missing.push(names[i]); return; }
+    for(const r of s.value){
+      const k=rowKey(r); const cur=merged.get(k)||{geoid:k};
+      merged.set(k, Object.assign(cur, r));
+    }
+  });
+  return {rows:[...merged.values()], missing};
+}
+
+/* ==================================================================
+   Derived indicators
+=================================================================== */
+function num(v){ if(v==null||v==="") return null; const n=Number(v); return (!isFinite(n)||n<=-99999) ? null : n; }
+function derive(raw){
+  const g = k => num(raw[k]);
+  const sh = (a,b) => (a==null||b==null||b<=0) ? null : a/b*100;
+  const sum = ks => { let s=0; for(const k of ks){ const v=g(k); if(v==null) return null; s+=v; } return s; };
+  const workers=g("B08301_001E"), wfh=g("B08301_021E"), aggTT=g("B08013_001E");
+  const hh=g("B25044_001E");
+  const zveh = (g("B25044_003E")==null||g("B25044_010E")==null) ? null : g("B25044_003E")+g("B25044_010E");
+  const commuters = (workers==null||wfh==null) ? null : workers-wfh;
+  const raceT=g("B03002_001E");
+  const otherNH = sum(["B03002_005E","B03002_007E","B03002_008E","B03002_009E"]);
+  const nhw=g("B03002_003E");
+  const ageT=g("B01001_001E");
+  const otherMode = sum(["B08301_016E","B08301_017E","B08301_020E"]);
+  return {
+    pop:g("B01003_001E"), med_age:g("B01002_001E"), med_inc:g("B19013_001E"),
+    households:g("B11001_001E"),
+    pct_renter:sh(g("B25003_003E"), g("B25003_001E")),
+    pct_pov:sh(sum(["C17002_002E","C17002_003E"]), g("C17002_001E")),
+    pct_hisp:sh(g("B03002_012E"),raceT), pct_nhw:sh(nhw,raceT), pct_nhb:sh(g("B03002_004E"),raceT),
+    pct_nha:sh(g("B03002_006E"),raceT), pct_nho:sh(otherNH,raceT),
+    pct_poc:(nhw==null||!raceT) ? null : 100 - nhw/raceT*100,
+    pct_u18:sh(sum(AGE_U18),ageT), pct_65:sh(sum(AGE_65),ageT),
+    workers, pct_da:sh(g("B08301_003E"),workers), pct_cp:sh(g("B08301_004E"),workers),
+    pct_transit:sh(g("B08301_010E"),workers), pct_walk:sh(g("B08301_019E"),workers),
+    pct_bike:sh(g("B08301_018E"),workers), pct_wfh:sh(wfh,workers), pct_othermode:sh(otherMode,workers),
+    commute:(aggTT==null||!commuters) ? null : aggTT/commuters,
+    zero_veh_hh:zveh, pct_zveh:sh(zveh,hh), veh_hh:(g("B25046_001E")==null||!hh) ? null : g("B25046_001E")/hh
+  };
+}
+function shortName(name, level){
+  if(!name) return "";
+  const parts = name.split(/;\s*|,\s*/).filter(p=>!/County$/.test(p) && p!=="Texas");
+  if(level==="county") return name.split(/[;,]/)[0];
+  if(level==="tract") return (parts[0]||name).replace("Census Tract","Tract");
+  const bg=(parts[0]||"").replace("Block Group","BG"); const tr=(parts[1]||"").replace("Census Tract","Tract");
+  return tr ? `${tr}, ${bg}` : bg;
+}
+
+/* ==================================================================
+   TIGERweb boundaries
+=================================================================== */
+async function tigerService(){
+  if(S.tiger) return S.tiger;
+  for(const svc of [`tigerWMS_ACS${S.year}`, "tigerWMS_Current"]){
+    try{
+      const j = await getJSON(`${TIGER}/${svc}/MapServer?f=json`, "TIGERweb");
+      if(j.layers && j.layers.length){ S.tiger={base:`${TIGER}/${svc}/MapServer`, layers:j.layers, fmt:"geojson"}; return S.tiger; }
+    }catch(e){ /* try next */ }
+  }
+  throw new Error("Couldn’t reach Census TIGERweb for boundaries.");
+}
+function findLayer(layers, names){
+  const low = l => l.name.trim().toLowerCase();
+  for(const n of names){ const hit=layers.find(l=>low(l)===n); if(hit) return hit.id; }
+  for(const n of names){ const hit=layers.find(l=>low(l).includes(n) && !low(l).includes("label")); if(hit) return hit.id; }
+  throw new Error("TIGERweb layer not found: "+names[0]);
+}
+function ringArea(r){ let a=0; for(let i=0;i<r.length-1;i++) a+=(r[i+1][0]-r[i][0])*(r[i+1][1]+r[i][1]); return a; }
+function esriToGeo(f){
+  const polys=[];
+  for(const ring of (f.geometry && f.geometry.rings)||[]){
+    if(ringArea(ring)>=0 || !polys.length) polys.push([ring]); else polys[polys.length-1].push(ring);
+  }
+  return {type:"Feature", properties:{...f.attributes},
+    geometry: polys.length===1 ? {type:"Polygon",coordinates:polys[0]} : {type:"MultiPolygon",coordinates:polys}};
+}
+async function fetchGeometry(level, county){
+  const svc = await tigerService();
+  const id = findLayer(svc.layers, LEVEL[level].layer);
+  const where = level==="county" ? `STATE='${ST}'` : `STATE='${ST}' AND COUNTY='${county}'`;
+  const page = 1000; let offset=0; const out=[];
+  for(let guard=0; guard<80; guard++){
+    const p = new URLSearchParams({where, outFields:"GEOID,AREALAND", returnGeometry:"true", outSR:"4326",
+      f:svc.fmt, maxAllowableOffset:String(LEVEL[level].tol), geometryPrecision:"5", orderByFields:"GEOID",
+      resultOffset:String(offset), resultRecordCount:String(page)});
+    let j;
+    try{
+      j = await getJSON(`${svc.base}/${id}/query?${p}`, "TIGERweb");
+      if(j.error || !Array.isArray(j.features)) throw new Error((j.error&&j.error.message)||"bad response");
+    }catch(e){
+      if(svc.fmt==="geojson" && offset===0){ svc.fmt="json"; guard--; continue; }
+      throw new Error("TIGERweb boundary request failed: "+e.message);
+    }
+    const batch = svc.fmt==="geojson" ? j.features : j.features.map(esriToGeo);
+    out.push(...batch);
+    const more = j.exceededTransferLimit || (j.properties && j.properties.exceededTransferLimit);
+    if(!batch.length || (!more && batch.length<page)) break;
+    offset += batch.length;
+  }
+  return out;
+}
+
+/* ==================================================================
+   Loading a view
+=================================================================== */
+async function loadView(){
+  const token = ++S.loadToken;
+  const level=S.geo, county=S.county;
+  const ck = level+"|"+(level==="county"?"tx":county);
+  const cname = level==="county" ? "Texas" : countyName(county);
+  status(`Loading ${LEVEL[level].label.toLowerCase()}${level==="county"?"":" in "+cname}…`, "loading");
+  mapMsg(`Loading ${LEVEL[level].label.toLowerCase()}…`);
+  S.selected=null; S.page=0; S.features=null;
+  if(layer){ map.removeLayer(layer); layer=null; } $("legend").hidden=true;
+  if(ctxLayer){ map.removeLayer(ctxLayer); ctxLayer=null; }
+  setDownloads(false,false);
+
+  let pack = S.cache.get(ck);
+  if(!pack){
+    pack = {};
+    pack.geoP = fetchGeometry(level,county).then(f=>({f}), e=>({err:e}));   // starts now, finishes whenever
+    try{
+      const [acs, sum] = await Promise.all([fetchACS(geoClause(level,county)), fetchACS(summaryClause(level,county))]);
+      pack.acs=acs; pack.sum=sum; S.cache.set(ck, pack);
+    }catch(e){
+      if(token!==S.loadToken) return;
+      showError(e); return;
+    }
+  }
+  if(token!==S.loadToken) return;
+
+  // Numbers first
+  buildRecords(level, pack, new Map());
+  renderKPIs(); renderProfile(); renderTable();
+  setDownloads(true,false);
+  const notes=[];
+  if(pack.acs.missing.length) notes.push("some tables unavailable at this level ("+pack.acs.missing.join(", ")+")");
+  status(`${S.records.length.toLocaleString()} ${LEVEL[level].label.toLowerCase()} loaded — drawing boundaries…`, "loading");
+  mapMsg("Drawing boundaries…");
+
+  // Then the map
+  const geo = await pack.geoP;
+  if(token!==S.loadToken) return;
+  if(geo.err){
+    notes.push("map boundaries didn’t load ("+geo.err.message+")");
+    mapMsg("Boundaries didn’t load. The numbers, table and CSV still work.");
+  }else{
+    const area = new Map();
+    for(const ft of geo.f){ const p=ft.properties||{}; area.set(String(p.GEOID), num(p.AREALAND)); }
+    const sel=S.selected;
+    buildRecords(level, pack, area); S.selected=sel;
+    S.features = geo.f.filter(ft=>S.byId.has(String(ft.properties.GEOID)));
+    renderKPIs(); renderProfile(); renderTable(true); renderMap();
+    setDownloads(true, !!S.features.length);
+    mapMsg(S.features.length ? null : "No boundaries matched this data.");
+  }
+  status(`${S.records.length.toLocaleString()} ${LEVEL[level].label.toLowerCase()} loaded`+(notes.length?" — "+notes.join("; "):""), notes.length?"err":"ok");
+}
+function buildRecords(level, pack, area){
+  S.records = pack.acs.rows.map(r=>{
+    const d = derive(r);
+    const a = area.get(r.geoid);
+    const land = a!=null ? a/2589988.11 : null;
+    d.density = (land && d.pop!=null) ? d.pop/land : null;
+    return {geoid:r.geoid, name:r.NAME, short:shortName(r.NAME, level), land_sqmi:land, d, raw:r};
+  });
+  S.byId = new Map(S.records.map(r=>[r.geoid,r]));
+  const sr = pack.sum.rows[0] || {};
+  const sd = derive(sr);
+  const totLand = [...area.values()].reduce((x,y)=>x+(y||0),0)/2589988.11;
+  sd.density = (totLand && sd.pop!=null) ? sd.pop/totLand : null;
+  S.summary = {name: level==="county" ? "Texas" : (sr.NAME||"").split(/[;,]/)[0], d:sd};
+}
+function showError(e){
+  status(e.message, "err");
+  mapMsg(e.message);
+  const box=$("errbox"); box.hidden=false;
+  $("errText").textContent=e.message;
+  const a=$("errUrl");
+  if(e.url){ a.hidden=false; a.href=e.url.replace("key=YOUR_KEY",""); a.textContent=e.url; } else a.hidden=true;
+}
+function countyName(fips){ const c=S.counties.find(c=>c.fips===fips); return c?c.name:"county "+fips; }
+
+/* ==================================================================
+   Render: KPIs and profile
+=================================================================== */
+function renderKPIs(){
+  const s=S.summary; if(!s) return;
+  $("sumTitle").textContent = s.name;
+  $("sumNote").textContent = S.geo==="county" ? "Statewide ACS estimate" : "County-wide ACS estimate";
+  const box=$("kpis"); box.replaceChildren();
+  for(const id of KPI_IDS){
+    const m=M[id], el=document.createElement("div");
+    el.className="kpi"+(m.travel?" travel":"");
+    const v=document.createElement("div"); v.className="v"; v.textContent=fmtShort(s.d[id], m.f);
+    v.title = fmt(s.d[id], m.f);
+    const l=document.createElement("div"); l.className="l"; l.textContent=m.label.replace(" (min)"," (minutes)");
+    el.append(v,l); box.append(el);
+  }
+}
+function renderProfile(){
+  const rec = S.selected ? S.byId.get(S.selected) : null;
+  const d = rec ? rec.d : (S.summary && S.summary.d);
+  if(!d) return;
+  $("pTitle").textContent = rec ? rec.short : S.summary.name;
+  $("pSub").textContent = rec ? (rec.name.split(/;\s*/).filter((p,i,a)=>i>0||a.length===1).join(", ")+" · GEOID "+rec.geoid) : "Area summary · click the map or a table row for detail";
+  $("clearSel").hidden = !rec;
+  const facts = [
+    ["Population", fmt(d.pop,"int")], ["Households", fmt(d.households,"int")],
+    ["Median age", fmt(d.med_age,"d1")], ["Median HH income", fmt(d.med_inc,"usd")],
+    ["Below poverty", fmt(d.pct_pov,"pct")], ["Renter households", fmt(d.pct_renter,"pct")],
+    ["Under 18", fmt(d.pct_u18,"pct")], ["Age 65+", fmt(d.pct_65,"pct")],
+    ["Zero-vehicle HH", fmt(d.pct_zveh,"pct")], ["Vehicles per HH", fmt(d.veh_hh,"d2")],
+    ["Workers 16+", fmt(d.workers,"int")], ["Mean commute", d.commute==null?"—":fmt(d.commute,"d1")+" min"]
+  ];
+  if(rec) facts.splice(2,0,["Land area", rec.land_sqmi==null?"—":fmt(rec.land_sqmi,"d2")+" sq mi"],["Per sq mi", fmt(d.density,"int")]);
+  const dl=$("pFacts"); dl.replaceChildren();
+  for(const [k,v] of facts){ const w=document.createElement("div"); const dt=document.createElement("dt"); dt.textContent=k; const dd=document.createElement("dd"); dd.textContent=v; w.append(dt,dd); dl.append(w); }
+  bars($("pRace"), [["Hispanic or Latino",d.pct_hisp],["White",d.pct_nhw],["Black",d.pct_nhb],["Asian",d.pct_nha],["Other / multiracial",d.pct_nho]]);
+  bars($("pMode"), [["Drive alone",d.pct_da],["Carpool",d.pct_cp],["Transit",d.pct_transit],["Walk",d.pct_walk],["Bike",d.pct_bike],["Work from home",d.pct_wfh],["Other",d.pct_othermode]]);
+}
+function bars(box, items){
+  box.replaceChildren();
+  for(const [label,v] of items){
+    const row=document.createElement("div"); row.className="bar";
+    const l=document.createElement("span"); l.textContent=label;
+    const t=document.createElement("div"); t.className="track";
+    const f=document.createElement("div"); f.className="fill"; f.style.width=(v==null?0:Math.max(0,Math.min(100,v)))+"%";
+    t.append(f);
+    const p=document.createElement("span"); p.className="p"; p.textContent=fmt(v,"pct");
+    row.append(l,t,p); box.append(row);
+  }
+}
+
+/* ==================================================================
+   Map
+=================================================================== */
+let map, tiles, layer, breaks=[];
+const dark = window.matchMedia("(prefers-color-scheme: dark)");
+function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function initMap(){
+  map = L.map("map",{zoomControl:true, attributionControl:true, preferCanvas:false, zoomSnap:0.25}).setView([31.2,-99.3],6);
+  map.attributionControl.setPrefix(false).addAttribution("Boundaries: U.S. Census Bureau");
+  map.createPane("context").style.zIndex = 450;   // county lines above the shaded areas
+  map.createPane("labels").style.zIndex = 460; map.getPane("labels").style.pointerEvents="none";
+  setBasemap("plain");
+  document.querySelectorAll(".basemap button").forEach(b=>b.onclick=()=>setBasemap(b.dataset.bm));
+  dark.addEventListener("change", ()=>{ setBasemap(S.basemap); if(ctxLayer) drawContext(); renderLegend(); });
+}
+let labels, ctxLayer;
+function setBasemap(kind){
+  S.basemap = kind;
+  document.querySelectorAll(".basemap button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.bm===kind)));
+  if(tiles){ map.removeLayer(tiles); tiles=null; }
+  if(labels){ map.removeLayer(labels); labels=null; }
+  $("map").classList.toggle("plain", kind==="plain");
+  if(kind==="streets"){
+    const tone = dark.matches ? "Dark" : "Light";
+    const esri = n => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${tone}_Gray_${n}/MapServer/tile/{z}/{y}/{x}`;
+    let failed = 0;
+    tiles = L.tileLayer(esri("Base"),{maxZoom:16, pane:"tilePane", attribution:'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors'}).addTo(map);
+    labels = L.tileLayer(esri("Reference"),{maxZoom:16, pane:"labels"}).addTo(map);
+    tiles.on("tileerror", ()=>{
+      if(++failed !== 4) return;
+      map.removeLayer(tiles); map.removeLayer(labels); labels=null;
+      tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+    });
+  }
+  if(layer) layer.setStyle(styleFor);
+}
+// Faint statewide county lines behind tracts and block groups, so a county never floats on its own
+async function drawContext(){
+  if(ctxLayer){ map.removeLayer(ctxLayer); ctxLayer=null; }
+  if(S.geo==="county") return;   // the counties themselves already draw these lines
+  if(!S.ctxGeo) S.ctxGeo = fetchGeometry("county").catch(()=>{ S.ctxGeo=null; return null; });
+  const feats = await S.ctxGeo; if(!feats) return;
+  const token = S.loadToken;
+  if(ctxLayer) map.removeLayer(ctxLayer);
+  ctxLayer = L.geoJSON({type:"FeatureCollection",features:feats},{
+    pane:"context", interactive:false,
+    style:ft=>{
+      const mine = S.geo!=="county" && String(ft.properties.GEOID)===ST+S.county;
+      return {fill:false, color: mine?css("--ink"):css("--ctx"), weight: mine?1.6:.7, opacity: S.geo==="county"?0:1};
+    }
+  });
+  if(token===S.loadToken) ctxLayer.addTo(map);
+}
+function computeBreaks(){
+  const vals = S.records.map(r=>r.d[S.metric]).filter(v=>v!=null&&isFinite(v)).sort((a,b)=>a-b);
+  if(!vals.length){ breaks=[]; return; }
+  const q = p => vals[Math.min(vals.length-1, Math.floor(p*(vals.length-1)))];
+  breaks = [...new Set([q(.2),q(.4),q(.6),q(.8)])];
+  breaks.min=vals[0]; breaks.max=vals[vals.length-1];
+}
+function colorFor(v){
+  if(v==null||!isFinite(v)) return css("--nodata");
+  let i=0; while(i<breaks.length && v>breaks[i]) i++;
+  return css("--ramp"+rampIdx(i));
+}
+function rampIdx(i){ return breaks.length<4 ? Math.round(i*4/Math.max(1,breaks.length)) : i; }
+function styleFor(ft){
+  const id=String(ft.properties.GEOID), rec=S.byId.get(id), sel=id===S.selected;
+  const plain = S.basemap!=="streets";
+  return {fillColor:colorFor(rec&&rec.d[S.metric]), fillOpacity: plain?1:.72,
+    color: sel?css("--sel"):css("--edge"), weight: sel?2.5:(S.geo==="county"?.6:.35), opacity:1};
+}
+function renderMap(){
+  if(layer){ map.removeLayer(layer); layer=null; }
+  computeBreaks();
+  if(!S.features || !S.features.length){ $("legend").hidden=true; return; }
+  layer = L.geoJSON({type:"FeatureCollection",features:S.features},{
+    style:styleFor,
+    onEachFeature:(ft,l)=>{
+      l.on("mouseover",()=>{ if(String(ft.properties.GEOID)!==S.selected){ l.setStyle({weight:1.5,color:css("--ink")}); l.bringToFront(); } });
+      l.on("mouseout",()=>{ layer.resetStyle(l); });
+      l.on("click",()=>select(String(ft.properties.GEOID), false));
+      l.bindTooltip(()=>{
+        const rec=S.byId.get(String(ft.properties.GEOID));
+        const m=M[S.metric];
+        const div=document.createElement("div");
+        const b=document.createElement("b"); b.textContent=rec?rec.short:ft.properties.GEOID;
+        const s=document.createElement("span"); s.textContent=m.label+": "+fmt(rec&&rec.d[S.metric], m.f);
+        div.append(b,s); return div;
+      },{sticky:true, className:"tt", direction:"top", offset:[0,-8]});
+    }
+  }).addTo(map);
+  try{ map.fitBounds(layer.getBounds(),{padding:[16,16]}); }catch(e){}
+  renderLegend();
+  drawContext();
+}
+function restyle(){ computeBreaks(); if(layer) layer.setStyle(styleFor); renderLegend(); }
+function renderLegend(){
+  const lg=$("legend"); if(!layer||!breaks.length){ lg.hidden=true; return; }
+  const m=M[S.metric]; lg.replaceChildren(); lg.hidden=false;
+  const b=document.createElement("b"); b.textContent=m.label; lg.append(b);
+  const edges=[breaks.min, ...breaks, breaks.max];
+  for(let i=0;i<edges.length-1;i++){
+    const row=document.createElement("div"); row.className="row";
+    const sw=document.createElement("i"); sw.style.background=css("--ramp"+rampIdx(i));
+    const t=document.createElement("span"); t.textContent=fmtShort(edges[i],m.f)+" – "+fmtShort(edges[i+1],m.f);
+    row.append(sw,t); lg.append(row);
+  }
+  const nd=document.createElement("div"); nd.className="row";
+  const sw=document.createElement("i"); sw.style.background=css("--nodata");
+  const t=document.createElement("span"); t.textContent="No estimate"; nd.append(sw,t); lg.append(nd);
+}
+function select(id, zoom){
+  S.selected = (id && S.selected!==id) ? id : (zoom ? id : null);
+  if(layer){
+    layer.setStyle(styleFor);
+    if(S.selected){
+      layer.eachLayer(l=>{ if(String(l.feature.properties.GEOID)===S.selected){ l.bringToFront(); if(zoom) map.fitBounds(l.getBounds(),{maxZoom:14,padding:[40,40]}); } });
+    }
+  }
+  renderProfile(); renderTable(true);
+}
+
+/* ==================================================================
+   Table
+=================================================================== */
+function filtered(){
+  const q=S.query.trim().toLowerCase();
+  let rows = q ? S.records.filter(r=>r.name.toLowerCase().includes(q)||r.geoid.includes(q)) : S.records.slice();
+  const k=S.sortKey, dir=S.sortDir;
+  rows.sort((a,b)=>{
+    if(k==="name") return dir*a.short.localeCompare(b.short, undefined, {numeric:true});
+    const x=a.d[k], y=b.d[k];
+    if(x==null&&y==null) return 0; if(x==null) return 1; if(y==null) return -1;
+    return dir*(x-y);
+  });
+  return rows;
+}
+function renderTable(keepPage){
+  $("tableTitle").textContent = LEVEL[S.geo].label + (S.geo==="county"?" in Texas":" in "+countyName(S.county));
+  const thead=$("table").tHead, tbody=$("table").tBodies[0];
+  const cols=[{id:"name",label:S.geo==="county"?"County":"Name"}, ...TABLE_IDS.map(id=>({id,label:SHORT[id]}))];
+  const tr=document.createElement("tr");
+  for(const c of cols){
+    const th=document.createElement("th"); th.scope="col"; th.textContent=c.label+(S.sortKey===c.id?(S.sortDir>0?" ↑":" ↓"):"");
+    if(S.sortKey===c.id) th.setAttribute("aria-sort", S.sortDir>0?"ascending":"descending");
+    th.tabIndex=0;
+    const go=()=>{ if(S.sortKey===c.id) S.sortDir*=-1; else { S.sortKey=c.id; S.sortDir=c.id==="name"?1:-1; } S.page=0; renderTable(); };
+    th.onclick=go; th.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } };
+    tr.append(th);
+  }
+  thead.replaceChildren(tr);
+
+  const rows=filtered(), per=25, pages=Math.max(1,Math.ceil(rows.length/per));
+  if(keepPage && S.selected){ const i=rows.findIndex(r=>r.geoid===S.selected); if(i>=0) S.page=Math.floor(i/per); }
+  S.page=Math.min(S.page,pages-1);
+  const slice=rows.slice(S.page*per, S.page*per+per);
+  tbody.replaceChildren();
+  for(const r of slice){
+    const row=document.createElement("tr"); if(r.geoid===S.selected) row.className="sel";
+    const td0=document.createElement("td"); td0.textContent=r.short; td0.title=r.name+" ("+r.geoid+")"; row.append(td0);
+    for(const id of TABLE_IDS){ const td=document.createElement("td"); td.textContent=fmt(r.d[id], M[id].f); row.append(td); }
+    row.onclick=()=>select(r.geoid, true);
+    tbody.append(row);
+  }
+  $("pageInfo").textContent = rows.length ? `${(S.page*per+1).toLocaleString()}–${Math.min(rows.length,(S.page+1)*per).toLocaleString()} of ${rows.length.toLocaleString()}` : "No matches";
+  $("prev").disabled = S.page<=0; $("next").disabled = S.page>=pages-1;
+}
+
+/* ==================================================================
+   Downloads
+=================================================================== */
+const EXPORT_FIELDS = ["pop","density","households","med_age","med_inc","pct_pov","pct_renter","pct_u18","pct_65",
+  "pct_hisp","pct_nhw","pct_nhb","pct_nha","pct_nho","pct_poc","workers","pct_da","pct_cp","pct_transit","pct_walk",
+  "pct_bike","pct_wfh","pct_othermode","commute","zero_veh_hh","pct_zveh","veh_hh"];
+const RAW_FIELDS = [...new Set(Object.values(GROUPS).flat())].filter(v=>v!=="NAME");
+function exportRow(r){
+  const o={geoid:r.geoid, name:r.name, land_sqmi:r.land_sqmi==null?null:+r.land_sqmi.toFixed(4)};
+  for(const k of EXPORT_FIELDS){ const v=r.d[k]; o[k]= v==null?null:+v.toFixed(k==="veh_hh"?3:2); }
+  for(const k of RAW_FIELDS) o[k]=num(r.raw[k]);
+  o.acs_year=S.year;
+  return o;
+}
+function baseName(){
+  const area = S.geo==="county" ? "texas" : countyName(S.county).toLowerCase().replace(/ county$/,"").replace(/[^a-z0-9]+/g,"-");
+  return `tx_acs5_${S.year}_${S.geo==="bg"?"blockgroup":S.geo}_${area}`;
+}
+function save(text, name, type){
+  const blob=new Blob([text],{type}); const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=name; document.body.append(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function csvCell(v){ if(v==null) return ""; const s=String(v); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+function downloadCSV(){
+  const rows=S.records.map(exportRow); if(!rows.length) return;
+  const cols=Object.keys(rows[0]);
+  const text=[cols.join(","), ...rows.map(r=>cols.map(c=>csvCell(r[c])).join(","))].join("\n");
+  save(text, baseName()+".csv", "text/csv");
+}
+function downloadGeoJSON(){
+  if(!S.features) return;
+  const fc={type:"FeatureCollection", features:S.features.map(ft=>{
+    const r=S.byId.get(String(ft.properties.GEOID));
+    return {type:"Feature", properties:exportRow(r), geometry:ft.geometry};
+  })};
+  save(JSON.stringify(fc), baseName()+".geojson", "application/geo+json");
+}
+function setDownloads(csv, geo){ $("dlCsv").disabled=!csv; $("dlGeo").disabled=!geo; $("dlGeo").title = geo?"":"Boundaries aren’t loaded"; }
+
+/* ==================================================================
+   Controls
+=================================================================== */
+function setGeo(g){
+  S.geo=g;
+  document.querySelectorAll(".sign button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.geo===g)));
+  $("county").disabled = g==="county" || !S.counties.length;
+  loadView();
+}
+function wire(){
+  document.querySelectorAll(".sign button").forEach(b=>b.onclick=()=>{ if(S.geo!==b.dataset.geo) setGeo(b.dataset.geo); });
+  const ms=$("metric");
+  for(const m of METRICS){ const o=document.createElement("option"); o.value=m.id; o.textContent=m.label; ms.append(o); }
+  const travelGroup=document.createElement("optgroup"); // keep transportation measures together and labeled
+  travelGroup.label="Transportation";
+  const demo=document.createElement("optgroup"); demo.label="People and households";
+  for(const o of [...ms.options]){ (M[o.value].travel?travelGroup:demo).append(o); }
+  ms.append(demo, travelGroup);
+  ms.value=S.metric; ms.setAttribute("autocomplete","off"); $("county").setAttribute("autocomplete","off");
+  ms.onchange=()=>{ S.metric=ms.value; restyle(); };
+  $("county").onchange=e=>{ S.county=e.target.value; if(S.geo!=="county") loadView(); };
+  $("search").oninput=e=>{ S.query=e.target.value; S.page=0; renderTable(); };
+  $("prev").onclick=()=>{ S.page--; renderTable(); };
+  $("next").onclick=()=>{ S.page++; renderTable(); };
+  $("clearSel").onclick=()=>select(null,false);
+  $("dlCsv").onclick=downloadCSV;
+  $("dlGeo").onclick=downloadGeoJSON;
+  $("apikey").value=S.key;
+  $("applyKey").onclick=()=>{ S.key=$("apikey").value.trim(); S.cache.clear(); boot(); };
+  $("retry").onclick=()=>{ S.cache.clear(); boot(); };
+}
+
+function loadCounties(arr){
+  const [head,...rows]=arr; const ni=head.indexOf("NAME"), ci=head.indexOf("county");
+  S.counties = rows.map(r=>({fips:r[ci], name:r[ni].split(/[;,]/)[0]})).sort((a,b)=>a.name.localeCompare(b.name));
+  const sel=$("county"); sel.replaceChildren();
+  for(const c of S.counties){ const o=document.createElement("option"); o.value=c.fips; o.textContent=c.name; sel.append(o); }
+  if(!S.counties.some(c=>c.fips===S.county)) S.county=S.counties[0].fips;
+  sel.value=S.county; sel.disabled = S.geo==="county";
+}
+
+async function boot(){
+  const token = ++S.loadToken;
+  $("errbox").hidden=true;
+  try{
+    status("Finding the latest ACS release…","loading");
+    const found = await detectYear();
+    if(token!==S.loadToken) return;
+    S.year = found.year; S.tiger = null;
+    $("vintage").textContent = `ACS ${S.year-4}–${S.year} 5-year estimates, pulled live from the Census API`;
+    loadCounties(found.countyRows);
+    await loadView();
+  }catch(e){
+    if(token===S.loadToken) showError(e);
+  }
+}
+
+initMap(); wire(); boot();
+</script>
+</body>
+</html>
